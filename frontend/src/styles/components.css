@@ -1,0 +1,303 @@
+/* ==========================================================================
+   Shared Components & Utility Classes
+   Tables, Cards, Badges, Charts & Form Controls
+   ========================================================================== */
+
+/* Data Table Styling */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.data-table th {
+  background-color: #F8F9F6;
+  color: #556059;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #E2E6E1;
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #ECEFEA;
+  color: var(--text-primary);
+  vertical-align: middle;
+  transition: background-color 0.15s ease;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tr:hover td {
+  background-color: #F6F8F5;
+}
+
+.room-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.room-cell-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.room-cell-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.metric-table-val {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.people-table-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+}
+
+.table-time-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.table-action-link {
+  color: var(--accent-terracotta);
+  font-weight: 600;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.table-action-link:hover {
+  background-color: var(--light-accent);
+  color: #B26B38;
+}
+
+/* Charts Wrapper */
+.chart-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease;
+}
+
+.chart-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.chart-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.chart-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.time-range-btn {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  border-radius: 7px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.time-range-btn:hover {
+  background: var(--bg-section);
+  color: var(--text-primary);
+  border-color: #D5DAD3;
+}
+
+.time-range-btn.active {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(32, 41, 37, 0.15);
+}
+
+/* Filter Controls */
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-input {
+  padding: 8px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  min-width: 220px;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.search-input:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px rgba(122, 148, 116, 0.12);
+}
+
+.filter-select {
+  padding: 8px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.filter-select:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px rgba(122, 148, 116, 0.12);
+}
+
+/* Metric Cards Grid in Room Details */
+.metric-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.metric-highlight-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  min-height: 98px;
+}
+
+.metric-highlight-card:hover {
+  box-shadow: var(--shadow-hover);
+  border-color: #D5DAD3;
+  transform: translateY(-2px);
+}
+
+.metric-info-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-info-label {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.metric-info-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  margin: 3px 0 5px 0;
+}
+
+/* Alerts List */
+.alerts-table {
+  width: 100%;
+}
+
+.alert-severity-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  display: inline-block;
+  border: 1px solid transparent;
+}
+
+.severity-warning {
+  background-color: #F5E9DF;
+  color: #A96132;
+  border-color: #E7C7AD;
+}
+
+.severity-critical {
+  background-color: #F5E3E3;
+  color: #C65C5C;
+  border-color: #E3BABA;
+}
+
+/* Skeleton Loading Animation */
+@keyframes skeleton-loading {
+  0% { background-color: #F5F6F2; }
+  50% { background-color: #E2E6E1; }
+  100% { background-color: #F5F6F2; }
+}
+
+.skeleton {
+  animation: skeleton-loading 1.5s infinite ease-in-out;
+  border-radius: 6px;
+}
+
+.skeleton-text {
+  height: 13px;
+  margin-bottom: 4px;
+  width: 100%;
+}
