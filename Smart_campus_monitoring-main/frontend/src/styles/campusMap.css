@@ -1,0 +1,294 @@
+/* ==========================================================================
+   Interactive Campus Digital Twin Map Styles
+   ========================================================================== */
+
+.campus-map-wrapper {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(135deg, #F8FAF7 0%, #F1F4EE 100%);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  transition: all 0.3s ease;
+}
+
+.campus-map-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  user-select: none;
+}
+
+/* Building Interactive States */
+.map-building-group {
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s ease;
+  outline: none;
+}
+
+.map-building-group:hover,
+.map-building-group:focus-visible {
+  filter: drop-shadow(0 8px 16px rgba(32, 41, 37, 0.12));
+}
+
+.map-building-group:focus-visible .building-shape {
+  stroke: var(--primary);
+  stroke-width: 2.5px;
+}
+
+.map-building-group.selected .building-shape {
+  stroke: var(--primary-dark);
+  stroke-width: 2.5px;
+}
+
+.building-shape {
+  transition: fill 0.3s ease, stroke 0.3s ease, stroke-width 0.2s ease;
+}
+
+/* Pulsing Status Beacon */
+@keyframes beaconPulse {
+  0% {
+    r: 6;
+    opacity: 0.9;
+  }
+  70% {
+    r: 16;
+    opacity: 0;
+  }
+  100% {
+    r: 16;
+    opacity: 0;
+  }
+}
+
+.beacon-wave {
+  animation: beaconPulse 2s cubic-bezier(0.25, 0.46, 0.45, 0.94) infinite;
+}
+
+/* Temperature Legend */
+.map-legend-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background-color: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.map-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.map-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.map-legend-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Floating Building Quick Inspector Drawer */
+.map-inspector-card {
+  margin-top: 16px;
+  background-color: var(--bg-surface);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-color);
+  padding: 18px 22px;
+  box-shadow: var(--shadow-card);
+  animation: fadeInDown 0.25s ease;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.inspector-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.inspector-stat-box {
+  background-color: var(--bg-section);
+  padding: 10px 14px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-color);
+}
+
+.inspector-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.inspector-stat-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 3px;
+}
+
+/* ==========================================================================
+   Floor Plan Specific Styles & Actuator Animations
+   ========================================================================== */
+
+/* Rotating cooling fan when Relay 2 is active */
+@keyframes spinFan {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.actuator-fan-spinning {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spinFan 1s linear infinite;
+}
+
+/* Glowing illuminated bulb when Relay 1 is active */
+@keyframes bulbGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.6));
+    opacity: 0.95;
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgba(251, 191, 36, 0.9));
+    opacity: 1;
+  }
+}
+
+.actuator-light-glowing {
+  animation: bulbGlow 2.5s ease-in-out infinite;
+}
+
+/* Floor Plan Room Group States */
+.floor-room-group {
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+}
+
+.floor-room-group:hover,
+.floor-room-group:focus-visible {
+  filter: drop-shadow(0 6px 14px rgba(32, 41, 37, 0.1));
+}
+
+.floor-room-group.selected .room-rect {
+  stroke: var(--primary-darker);
+  stroke-width: 2.5px;
+}
+
+.room-rect {
+  transition: fill 0.3s ease, stroke 0.3s ease;
+}
+
+/* Floor Plan Corridor */
+.corridor-area {
+  fill: #FFFFFF;
+  stroke: #D6DCD3;
+  stroke-width: 1.5;
+}
+
+/* Floor Plan Breadcrumb Navigation */
+.floor-plan-nav-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+/* Inspector Drawer Styles */
+.room-inspector-modal {
+  margin-top: 18px;
+  background-color: var(--bg-surface);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-color);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-hover);
+  animation: fadeInDown 0.25s ease;
+}
+
+.room-inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 18px;
+}
+
+.room-inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.room-inspector-card-box {
+  background-color: var(--bg-section);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-color);
+  padding: 12px 16px;
+}
+
+.room-inspector-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-inspector-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 4px;
+}
+
+.room-inspector-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+

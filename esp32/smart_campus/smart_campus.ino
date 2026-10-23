@@ -50,6 +50,7 @@ unsigned long lastMsg = 0;
 unsigned long lastIRTime = 0;
 
 int peopleCount = 0;
+bool isInitialSessionBoot = true;
 
 int lastIRState = HIGH;
 
@@ -160,6 +161,15 @@ void loop() {
 
   client.loop();
 
+  // Initialize counting session to 0 on initial boot connection (does not re-trigger on subsequent reconnections)
+  if (isInitialSessionBoot && client.connected()) {
+    peopleCount = 0;
+    client.publish("campus/people", "0");
+    client.publish("campus/status", "ESP32 Campus System Started (Session 0)");
+    isInitialSessionBoot = false;
+    Serial.println("Initial session counter initialized to 0 and published.");
+  }
+
   // =========================
   // IR SENSOR
   // =========================
@@ -207,8 +217,26 @@ void loop() {
     lastMsg = millis();
 
     // Read DHT11
-    float temperature = dht.readTemperature();
+    // Read DHT11 sensor
     float humidity = dht.readHumidity();
+
+    delay(100);
+
+    float temperature = dht.readTemperature();
+
+    // Check sensor readings
+    if (isnan(temperature) || isnan(humidity)) {
+      Serial.println("DHT11 reading failed!");
+      Serial.println("Check sensor wiring, GPIO 4, and sensor type.");
+    } else {
+      Serial.print("Temperature: ");
+      Serial.print(temperature);
+      Serial.println(" C");
+
+      Serial.print("Humidity: ");
+      Serial.print(humidity);
+      Serial.println(" %");
+    }
 
     // Check sensor
     if (isnan(temperature) || isnan(humidity)) {

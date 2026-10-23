@@ -1,0 +1,28 @@
+{
+  "name": "smart_campus_environment_management",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node start_dev.js",
+    "start": "node start_dev.js",
+    "backend": "node backend/server.js",
+    "assistant": "node ai-assistant/backend/server.js",
+    "frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "simulate": "node backend/simulate_live_esp32.js",
+    "verify": "node backend/verify_backend.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mongoose": "^9.9.1",
+    "mqtt": "^5.15.2"
+  }
+}

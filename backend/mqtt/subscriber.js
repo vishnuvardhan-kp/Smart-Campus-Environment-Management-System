@@ -26,6 +26,7 @@ async function getOrCreateRoomState(roomName) {
             temperature: existing && existing.temperature !== undefined ? existing.temperature : null,
             humidity: existing && existing.humidity !== undefined ? existing.humidity : null,
             peopleCount: existing && existing.peopleCount !== undefined ? existing.peopleCount : 0,
+            sessionStartedAt: existing && existing.sessionStartedAt ? existing.sessionStartedAt : new Date(),
             light: existing && existing.light ? existing.light : 'OFF',
             fan: existing && existing.fan ? existing.fan : 'OFF',
             systemStatus: existing && existing.systemStatus ? existing.systemStatus : 'Connected',
@@ -40,6 +41,7 @@ async function getOrCreateRoomState(roomName) {
             temperature: null,
             humidity: null,
             peopleCount: 0,
+            sessionStartedAt: new Date(),
             light: 'OFF',
             fan: 'OFF',
             systemStatus: 'Connected',
@@ -62,6 +64,7 @@ async function saveRoomStateAndThrottleHistory(roomName, state, now) {
             temperature: state.temperature,
             humidity: state.humidity,
             peopleCount: state.peopleCount,
+            sessionStartedAt: state.sessionStartedAt || new Date(now),
             light: state.light,
             fan: state.fan,
             systemStatus: state.systemStatus,
@@ -91,6 +94,7 @@ async function saveRoomStateAndThrottleHistory(roomName, state, now) {
             temperature: state.temperature,
             humidity: state.humidity,
             peopleCount: state.peopleCount,
+            sessionStartedAt: state.sessionStartedAt || new Date(now),
             light: state.light,
             fan: state.fan,
             systemStatus: state.systemStatus,
@@ -217,8 +221,24 @@ const initMqttSubscriber = () => {
                         return;
                     }
                     const state = await getOrCreateRoomState(espRoom);
+                    // Detect session start if count dropped below previous count, or uninitialized
+                    const currentCount = (state.peopleCount !== undefined && state.peopleCount !== null) ? state.peopleCount : 0;
+                    if (count < currentCount || !state.sessionStartedAt) {
+                        state.sessionStartedAt = new Date(now);
+                        console.log(`[Session Started] ${espRoom} - Counting session initialized at ${state.sessionStartedAt.toISOString()} (Count: ${count})`);
+                    }
                     state.peopleCount = count;
                     state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                case 'campus/session/reset': {
+                    const state = await getOrCreateRoomState(espRoom);
+                    state.peopleCount = 0;
+                    state.sessionStartedAt = new Date(now);
+                    state.lastUpdated = new Date(now);
+                    console.log(`[Session Reset] ${espRoom} - Counter reset to 0 at ${state.sessionStartedAt.toISOString()}`);
                     await saveRoomStateAndThrottleHistory(espRoom, state, now);
                     break;
                 }

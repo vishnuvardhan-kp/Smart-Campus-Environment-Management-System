@@ -1,0 +1,130 @@
+/* Avatar Base Styles & Animation States */
+
+.campus-avatar-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.campus-avatar-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transition: transform var(--transition-normal);
+}
+
+/* 1. IDLE STATE: Gentle breathing float and blinking */
+.state-idle .campus-avatar-svg {
+  animation: avatarFloat 3.8s ease-in-out infinite;
+}
+
+.state-idle .eye {
+  animation: eyeBlink 4.5s infinite;
+  transform-origin: center;
+}
+
+@keyframes avatarFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+@keyframes eyeBlink {
+  0%, 92%, 100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* 2. THINKING STATE: Slight head tilt, glowing pulsating halo */
+.state-thinking .campus-avatar-svg {
+  transform: rotate(3.5deg);
+  animation: thinkingHeadBob 1.8s ease-in-out infinite alternate;
+}
+
+.state-thinking .avatar-halo {
+  animation: haloPulse 1.2s ease-in-out infinite;
+  transform-origin: 32px 10px;
+}
+
+.state-thinking .avatar-antenna-tip {
+  animation: antennaGlow 1.2s ease-in-out infinite;
+}
+
+@keyframes thinkingHeadBob {
+  0% {
+    transform: rotate(2deg) translateY(0);
+  }
+  100% {
+    transform: rotate(4deg) translateY(-2px);
+  }
+}
+
+@keyframes haloPulse {
+  0% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes antennaGlow {
+  0%, 100% {
+    fill: #7A9474;
+  }
+  50% {
+    fill: #C77B45;
+  }
+}
+
+/* 3. RESPONDING STATE: Cheerful speaking wave-bars */
+.state-responding .wave-bar {
+  animation: waveBarBounce 0.7s ease-in-out infinite alternate;
+  transform-origin: center;
+}
+
+.state-responding .bar-1 { animation-delay: 0.05s; }
+.state-responding .bar-2 { animation-delay: 0.2s; }
+.state-responding .bar-3 { animation-delay: 0.35s; }
+.state-responding .bar-4 { animation-delay: 0.15s; }
+
+@keyframes waveBarBounce {
+  0% {
+    transform: scaleY(0.5);
+  }
+  100% {
+    transform: scaleY(1.3);
+  }
+}
+
+/* ACCESSIBILITY: Disable all animations for prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .state-idle .campus-avatar-svg,
+  .state-thinking .campus-avatar-svg,
+  .state-idle .eye,
+  .state-thinking .avatar-halo,
+  .state-thinking .avatar-antenna-tip,
+  .state-responding .wave-bar {
+    animation: none !important;
+    transform: none !important;
+  }
+  
+  .state-thinking .avatar-halo {
+    opacity: 0.8;
+  }
+}

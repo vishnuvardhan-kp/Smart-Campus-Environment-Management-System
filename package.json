@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node backend/server.js",
+    "dev": "npm --prefix Smart_campus_monitoring-main run dev",
+    "start": "npm --prefix Smart_campus_monitoring-main run dev",
     "backend": "node backend/server.js",
     "frontend": "npm --prefix frontend run dev",
     "simulate": "node backend/simulate_live_esp32.js",

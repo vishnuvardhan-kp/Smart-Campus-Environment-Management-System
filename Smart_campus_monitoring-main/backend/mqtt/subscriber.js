@@ -1,0 +1,506 @@
+const mqtt = require('mqtt');
+const CurrentEnvironment = require('../models/CurrentEnvironment');
+const EnvironmentHistory = require('../models/EnvironmentHistory');
+const {
+    validateTelemetryPayload,
+    detectSuddenTemperatureChange,
+    predictThresholdViolation,
+    recordOrUpdateFault,
+    resolveFault,
+    sweepOfflineDevices
+} = require('../services/sensorFaultDetection');
+const { getHistoricalReadingForWindow } = require('../services/environmentTrend');
+const {
+    processTelemetryReading,
+    resolveOfflineIncident
+} = require('../services/alerts/alertIncidentService');
+
+// In-memory current state cache per room to aggregate scalar MQTT topics
+const roomStateMap = new Map();
+
+// In-memory throttling cache to enforce the 60-second history interval
+const lastHistorySavedMap = new Map();
+
+const mongoose = require('mongoose');
+
+/**
+ * Retrieve or initialize in-memory state for a room, bootstrapping from MongoDB if possible.
+ */
+async function getOrCreateRoomState(roomName) {
+    if (roomStateMap.has(roomName)) {
+        return roomStateMap.get(roomName);
+    }
+
+    let existing = null;
+    if (mongoose.connection.readyState === 1) {
+        try {
+            existing = await CurrentEnvironment.findOne({ 
+                room: new RegExp(`^${roomName}$`, 'i') 
+            });
+        } catch (e) {}
+    }
+
+    const state = {
+        room: roomName,
+        temperature: existing && existing.temperature !== undefined ? existing.temperature : null,
+        humidity: existing && existing.humidity !== undefined ? existing.humidity : null,
+        peopleCount: existing && existing.peopleCount !== undefined ? existing.peopleCount : 0,
+        sessionStartedAt: existing && existing.sessionStartedAt ? existing.sessionStartedAt : new Date(),
+        light: existing && existing.light ? existing.light : 'OFF',
+        fan: existing && existing.fan ? existing.fan : 'OFF',
+        systemStatus: existing && existing.systemStatus ? existing.systemStatus : 'Connected',
+        lastUpdated: existing && existing.lastUpdated ? existing.lastUpdated : new Date()
+    };
+
+    roomStateMap.set(roomName, state);
+    return state;
+}
+
+/**
+ * Upsert current room snapshot immediately and write throttled history record (every 60s).
+ */
+async function saveRoomStateAndThrottleHistory(roomName, state, now) {
+    // 1. Immediately update in-memory cache for ultra-fast responsive queries
+    roomStateMap.set(roomName, { ...state });
+    console.log(`[Realtime Updated] ${roomName} - Temp: ${state.temperature}°C, Hum: ${state.humidity}%, People: ${state.peopleCount}, Light: ${state.light}, Fan: ${state.fan}, Status: ${state.systemStatus}`);
+
+    // 2. Persist to MongoDB if connected
+    if (mongoose.connection.readyState === 1) {
+        try {
+            await CurrentEnvironment.findOneAndUpdate(
+                { room: roomName },
+                {
+                    room: roomName,
+                    temperature: state.temperature,
+                    humidity: state.humidity,
+                    peopleCount: state.peopleCount,
+                    sessionStartedAt: state.sessionStartedAt || new Date(now),
+                    light: state.light,
+                    fan: state.fan,
+                    systemStatus: state.systemStatus,
+                    lastUpdated: new Date(now)
+                },
+                { upsert: true, returnDocument: 'after' }
+            );
+
+            const latestHistory = await EnvironmentHistory.findOne({ 
+                room: new RegExp(`^${roomName}$`, 'i') 
+            }).sort({ timestamp: -1 });
+
+            const mongoTime = (latestHistory && latestHistory.timestamp)
+                ? new Date(latestHistory.timestamp).getTime()
+                : 0;
+
+            const inMemoryTime = lastHistorySavedMap.get(roomName) || 0;
+            const lastSavedTime = Math.max(mongoTime, inMemoryTime);
+
+            if (lastSavedTime === 0 || (now - lastSavedTime >= 60000)) {
+                lastHistorySavedMap.set(roomName, now);
+                await EnvironmentHistory.create({
+                    room: roomName,
+                    temperature: state.temperature,
+                    humidity: state.humidity,
+                    peopleCount: state.peopleCount,
+                    sessionStartedAt: state.sessionStartedAt || new Date(now),
+                    light: state.light,
+                    fan: state.fan,
+                    systemStatus: state.systemStatus,
+                    timestamp: new Date(now)
+                });
+                console.log(`[History Saved] ${roomName}`);
+            }
+        } catch (dbErr) {
+            console.warn('[MongoDB Persistence Error]:', dbErr.message);
+        }
+    }
+}
+
+const initMqttSubscriber = () => {
+    const brokerUrl = process.env.MQTT_BROKER_URL;
+    const username = process.env.MQTT_USERNAME;
+    const password = process.env.MQTT_PASSWORD;
+    const topic = 'campus/#';
+
+    if (!brokerUrl) {
+        console.warn('[MQTT] MQTT_BROKER_URL is not set in environment variables. Subscriber skipped.');
+        return null;
+    }
+
+    const options = {
+        clean: true,
+        connectTimeout: 4000,
+        reconnectPeriod: 5000,
+    };
+
+    if (username) options.username = username;
+    if (password) options.password = password;
+
+    console.log(`[MQTT] Connecting to MQTT broker at ${brokerUrl}...`);
+    const client = mqtt.connect(brokerUrl, options);
+
+    // Periodic sweep for offline devices every 15 seconds
+    const offlineSweepInterval = setInterval(() => {
+        sweepOfflineDevices();
+    }, 15000);
+
+    client.on('connect', () => {
+        console.log('[MQTT Connected]');
+        console.log('[MQTT] Connected to MQTT broker successfully');
+        client.subscribe(topic, (err) => {
+            if (err) {
+                console.error(`[MQTT] Subscription error for topic pattern "${topic}":`, err.message);
+            } else {
+                console.log(`[MQTT] Subscribed to topic pattern: ${topic}`);
+            }
+        });
+    });
+
+    client.on('message', async (receivedTopic, message) => {
+        try {
+            const rawMessage = message.toString().trim();
+            const now = Date.now();
+            const espRoom = (process.env.ESP32_ROOM || 'LAB101').trim();
+
+            // Case 1: Legacy or simulator composite JSON format (campus/environment/+)
+            if (receivedTopic.startsWith('campus/environment/')) {
+                try {
+                    const payload = JSON.parse(rawMessage);
+                    const topicRoom = receivedTopic.split('/')[2];
+                    const roomName = (payload.room || topicRoom || espRoom).trim();
+                    const state = await getOrCreateRoomState(roomName);
+
+                    // Anomaly Check 1: Plausibility & Field Validation
+                    const validation = validateTelemetryPayload(payload);
+                    if (validation.isImplausible) {
+                        await recordOrUpdateFault({
+                            room: roomName,
+                            sensorType: 'DHT11',
+                            faultType: 'IMPLAUSIBLE_READING',
+                            severity: 'HIGH',
+                            message: validation.errors.join('; '),
+                            metric: 'telemetry',
+                            metadata: { rawPayload: payload, errors: validation.errors },
+                            now: new Date(now)
+                        });
+                        console.warn(`[Fault Engine] Preserved last valid reading for ${roomName}. Implausible data:`, validation.errors);
+                        // Do not overwrite temperature/humidity with invalid telemetry
+                        return;
+                    }
+
+                    // Telemetry is valid -> auto-resolve past implausible and offline faults
+                    await resolveFault(roomName, 'IMPLAUSIBLE_READING', new Date(now));
+                    await resolveFault(roomName, 'DEVICE_OFFLINE', new Date(now));
+
+                    // Anomaly Check 2: Sudden Temperature Change
+                    if (payload.temperature !== undefined && state.temperature !== null) {
+                        const sudden = detectSuddenTemperatureChange(
+                            Number(payload.temperature),
+                            state.temperature,
+                            state.lastUpdated,
+                            now
+                        );
+                        if (sudden && sudden.detected) {
+                            await recordOrUpdateFault({
+                                room: roomName,
+                                sensorType: 'DHT11',
+                                faultType: 'SUDDEN_TEMP_CHANGE',
+                                severity: sudden.severity,
+                                message: sudden.message,
+                                metric: 'temperature',
+                                metadata: sudden,
+                                now: new Date(now)
+                            });
+                        } else {
+                            await resolveFault(roomName, 'SUDDEN_TEMP_CHANGE', new Date(now));
+                        }
+                    }
+
+                    // Anomaly Check 3: Threshold Violation Prediction
+                    if (payload.temperature !== undefined) {
+                        const histDoc = await getHistoricalReadingForWindow(roomName, now);
+                        if (histDoc && histDoc.temperature !== undefined && histDoc.temperature !== null) {
+                            const pred = predictThresholdViolation(Number(payload.temperature), histDoc.temperature, 20);
+                            if (pred && pred.predicted) {
+                                await recordOrUpdateFault({
+                                    room: roomName,
+                                    sensorType: 'DHT11',
+                                    faultType: 'THRESHOLD_PREDICTION',
+                                    severity: pred.severity,
+                                    message: pred.message,
+                                    metric: 'temperature',
+                                    metadata: pred,
+                                    now: new Date(now)
+                                });
+                            } else {
+                                await resolveFault(roomName, 'THRESHOLD_PREDICTION', new Date(now));
+                            }
+                        }
+                    }
+
+                    // Update state safely with validated telemetry
+                    if (payload.temperature !== undefined) {
+                        state.temperature = Number(payload.temperature);
+                    }
+                    if (payload.humidity !== undefined) {
+                        state.humidity = Number(payload.humidity);
+                    }
+                    if (payload.peopleCount !== undefined && !isNaN(Number(payload.peopleCount))) {
+                        state.peopleCount = parseInt(payload.peopleCount, 10);
+                    }
+                    if (payload.people !== undefined && !isNaN(Number(payload.people))) {
+                        state.peopleCount = parseInt(payload.people, 10);
+                    }
+                    if (payload.light !== undefined) {
+                        state.light = String(payload.light).trim().toUpperCase();
+                    }
+                    if (payload.fan !== undefined) {
+                        state.fan = String(payload.fan).trim().toUpperCase();
+                    }
+                    if (payload.systemStatus !== undefined) {
+                        state.systemStatus = String(payload.systemStatus).trim();
+                    } else if (payload.status !== undefined) {
+                        state.systemStatus = String(payload.status).trim();
+                    }
+                    state.lastUpdated = new Date(now);
+
+                    await saveRoomStateAndThrottleHistory(roomName, state, now);
+                    return;
+                } catch (jsonErr) {
+                    console.warn(`[MQTT] Invalid JSON on ${receivedTopic}:`, rawMessage);
+                    return;
+                }
+            }
+
+            // Case 2: Discrete scalar ESP32 topics
+            switch (receivedTopic) {
+                case 'campus/temperature': {
+                    const temp = parseFloat(rawMessage);
+                    const state = await getOrCreateRoomState(espRoom);
+
+                    if (isNaN(temp) || temp < -5.0 || temp > 60.0) {
+                        console.warn('[MQTT] Implausible temperature reading rejected:', rawMessage);
+                        await recordOrUpdateFault({
+                            room: espRoom,
+                            sensorType: 'DHT11',
+                            faultType: 'IMPLAUSIBLE_READING',
+                            severity: 'HIGH',
+                            message: `Implausible temperature reading received: "${rawMessage}"`,
+                            metric: 'temperature',
+                            metadata: { rawReading: rawMessage },
+                            now: new Date(now)
+                        });
+                        return; // Keep existing valid temperature unchanged
+                    }
+
+                    await resolveFault(espRoom, 'IMPLAUSIBLE_READING', new Date(now));
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+
+                    // Sudden change check
+                    if (state.temperature !== null) {
+                        const sudden = detectSuddenTemperatureChange(temp, state.temperature, state.lastUpdated, now);
+                        if (sudden && sudden.detected) {
+                            await recordOrUpdateFault({
+                                room: espRoom,
+                                sensorType: 'DHT11',
+                                faultType: 'SUDDEN_TEMP_CHANGE',
+                                severity: sudden.severity,
+                                message: sudden.message,
+                                metric: 'temperature',
+                                metadata: sudden,
+                                now: new Date(now)
+                            });
+                        } else {
+                            await resolveFault(espRoom, 'SUDDEN_TEMP_CHANGE', new Date(now));
+                        }
+                    }
+
+                    // Threshold prediction check
+                    const histDoc = await getHistoricalReadingForWindow(espRoom, now);
+                    if (histDoc && histDoc.temperature !== undefined && histDoc.temperature !== null) {
+                        const pred = predictThresholdViolation(temp, histDoc.temperature, 20);
+                        if (pred && pred.predicted) {
+                            await recordOrUpdateFault({
+                                room: espRoom,
+                                sensorType: 'DHT11',
+                                faultType: 'THRESHOLD_PREDICTION',
+                                severity: pred.severity,
+                                message: pred.message,
+                                metric: 'temperature',
+                                metadata: pred,
+                                now: new Date(now)
+                            });
+                        } else {
+                            await resolveFault(espRoom, 'THRESHOLD_PREDICTION', new Date(now));
+                        }
+                    }
+
+                    state.temperature = Number(temp.toFixed(2));
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+
+                    // Evaluate environmental alert pipeline for live hardware
+                    try {
+                        await processTelemetryReading({
+                            room: espRoom,
+                            temperature: state.temperature,
+                            humidity: state.humidity,
+                            source: 'LIVE_HARDWARE',
+                            timestamp: now
+                        });
+                    } catch (alertErr) {
+                        console.error('[MQTT -> Alert Pipeline] Non-fatal temperature alert error:', alertErr.message);
+                    }
+                    break;
+                }
+
+                case 'campus/humidity': {
+                    const hum = parseFloat(rawMessage);
+                    const state = await getOrCreateRoomState(espRoom);
+
+                    if (isNaN(hum) || hum < 5.0 || hum > 98.0) {
+                        console.warn('[MQTT] Implausible humidity reading rejected:', rawMessage);
+                        await recordOrUpdateFault({
+                            room: espRoom,
+                            sensorType: 'DHT11',
+                            faultType: 'IMPLAUSIBLE_READING',
+                            severity: 'HIGH',
+                            message: `Implausible humidity reading received: "${rawMessage}"`,
+                            metric: 'humidity',
+                            metadata: { rawReading: rawMessage },
+                            now: new Date(now)
+                        });
+                        return; // Keep existing valid humidity unchanged
+                    }
+
+                    await resolveFault(espRoom, 'IMPLAUSIBLE_READING', new Date(now));
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+
+                    state.humidity = Number(hum.toFixed(2));
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+
+                    // Evaluate environmental alert pipeline for live hardware
+                    try {
+                        await processTelemetryReading({
+                            room: espRoom,
+                            temperature: state.temperature,
+                            humidity: state.humidity,
+                            source: 'LIVE_HARDWARE',
+                            timestamp: now
+                        });
+                    } catch (alertErr) {
+                        console.error('[MQTT -> Alert Pipeline] Non-fatal humidity alert error:', alertErr.message);
+                    }
+                    break;
+                }
+
+                case 'campus/people': {
+                    const count = parseInt(rawMessage, 10);
+                    const state = await getOrCreateRoomState(espRoom);
+
+                    if (isNaN(count) || count < 0 || count > 500) {
+                        console.warn('[MQTT] Implausible people count rejected:', rawMessage);
+                        await recordOrUpdateFault({
+                            room: espRoom,
+                            sensorType: 'IR',
+                            faultType: 'IMPLAUSIBLE_READING',
+                            severity: 'MEDIUM',
+                            message: `Implausible occupancy count received: "${rawMessage}"`,
+                            metric: 'peopleCount',
+                            metadata: { rawReading: rawMessage },
+                            now: new Date(now)
+                        });
+                        return;
+                    }
+
+                    await resolveFault(espRoom, 'IMPLAUSIBLE_READING', new Date(now));
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+
+                    const currentCount = (state.peopleCount !== undefined && state.peopleCount !== null) ? state.peopleCount : 0;
+                    if (count < currentCount || !state.sessionStartedAt) {
+                        state.sessionStartedAt = new Date(now);
+                        console.log(`[Session Started] ${espRoom} - Counting session initialized at ${state.sessionStartedAt.toISOString()} (Count: ${count})`);
+                    }
+
+                    state.peopleCount = count;
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                case 'campus/session/reset': {
+                    const state = await getOrCreateRoomState(espRoom);
+                    state.peopleCount = 0;
+                    state.sessionStartedAt = new Date(now);
+                    state.lastUpdated = new Date(now);
+                    console.log(`[Session Reset] ${espRoom} - Counter reset to 0 at ${state.sessionStartedAt.toISOString()}`);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                case 'campus/light': {
+                    const norm = rawMessage.toUpperCase();
+                    const state = await getOrCreateRoomState(espRoom);
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+                    state.light = (norm === 'ON' || norm === '1' || norm === 'TRUE') ? 'ON' : 'OFF';
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                case 'campus/fan': {
+                    const norm = rawMessage.toUpperCase();
+                    const state = await getOrCreateRoomState(espRoom);
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+                    state.fan = (norm === 'ON' || norm === '1' || norm === 'TRUE') ? 'ON' : 'OFF';
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                case 'campus/status': {
+                    const state = await getOrCreateRoomState(espRoom);
+                    await resolveFault(espRoom, 'DEVICE_OFFLINE', new Date(now));
+                    state.systemStatus = rawMessage || 'Connected';
+                    state.lastUpdated = new Date(now);
+                    await saveRoomStateAndThrottleHistory(espRoom, state, now);
+                    break;
+                }
+
+                default:
+                    // Other campus/ topics can be ignored safely
+                    break;
+            }
+
+        } catch (error) {
+            console.error('[MQTT] Message processing error:', error.message);
+        }
+    });
+
+    let lastErrorMsg = '';
+    let lastErrorTime = 0;
+    client.on('error', (err) => {
+        const now = Date.now();
+        if (err.message !== lastErrorMsg || (now - lastErrorTime > 15000)) {
+            console.error('[MQTT] Connection error:', err.message);
+            lastErrorMsg = err.message;
+            lastErrorTime = now;
+        }
+    });
+
+    client.on('offline', () => {
+        const now = Date.now();
+        if (now - lastErrorTime > 15000) {
+            console.warn('[MQTT] Client went offline. Reconnecting in background...');
+        }
+    });
+
+    client.on('reconnect', () => {
+        // Safe asynchronous background reconnect
+    });
+
+    return client;
+};
+
+module.exports = initMqttSubscriber;
+module.exports.roomStateMap = roomStateMap;

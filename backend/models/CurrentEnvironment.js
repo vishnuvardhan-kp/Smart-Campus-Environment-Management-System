@@ -22,6 +22,10 @@ const currentEnvironmentSchema = new mongoose.Schema(
             type: Number,
             default: 0
         },
+        sessionStartedAt: {
+            type: Date,
+            default: Date.now
+        },
         light: {
             type: String,
             default: 'OFF'
